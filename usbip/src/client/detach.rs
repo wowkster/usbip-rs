@@ -2,7 +2,7 @@ use std::{io, path::Path};
 
 use crate::{
     client::VHCI_STATE_PATH,
-    drivers::vhci_hcd::{VhciDeviceStatus, VhciHcd, VhciHcdError},
+    drivers::vhci_hcd::{Error as VhciHcdError, VhciDeviceStatus, VhciHcd},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -11,8 +11,9 @@ pub enum Error {
     VhciHcd(#[from] VhciHcdError),
     #[error("Port number is greater than the max port number advertised by vhci_hcd")]
     InvalidPortNumber,
-    #[error(transparent)]
-    Io(#[from] io::Error),
+
+    #[error("Failed to save `vhci_hcd` state to the file-system ({0})")]
+    FsIo(io::Error),
 }
 
 pub fn detach_device(port: u16) -> Result<(), Error> {
@@ -29,7 +30,7 @@ pub fn detach_device(port: u16) -> Result<(), Error> {
         }
     }
 
-    remove_record(port)?;
+    remove_record(port).map_err(Error::FsIo)?;
 
     vhci_hcd.detach_device(port)?;
 

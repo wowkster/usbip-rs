@@ -5,29 +5,41 @@ use std::{
 };
 
 use crate::{
-    client::VHCI_STATE_PATH, drivers::vhci_hcd::{UsbSpeed, VhciHcd, VhciHcdError}, net::UsbIpSocket, proto::{CharBuf, ImportReply, ImportRequest, OperationError, OperationKind, UsbDeviceInfo}
+    client::VHCI_STATE_PATH,
+    drivers::vhci_hcd::{Error as VhciHcdError, UsbSpeed, VhciHcd},
+    net::UsbIpSocket,
+    proto::{
+        CharBuf, ImportReply, ImportRequest, OperationError, OperationKind, SYSFS_BUS_ID_SIZE,
+        UsbDeviceInfo,
+    },
 };
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error(transparent)]
-    Io(#[from] io::Error),
-    #[error("Bus ID is too long")]
+    #[error("Network connection failed ({0})")]
+    NetworkIo(io::Error),
+
+    #[error("Provided bus ID is too long (max size is {SYSFS_BUS_ID_SIZE} bytes)")]
     BusIdTooLong,
-    #[error("Bus ID is mismatch")]
+    #[error("Bus ID returned by the server did not match the one that was sent")]
     BusIdMismatch,
+
     #[error("Failed to parse PDU")]
     ProtocolError,
-    #[error("Operation failed: {0:?}")]
+    #[error("usbip network operation failed ({0})")]
     OperationError(#[from] OperationError),
-    #[error("VHCI state path already exists, but is not a directory")]
-    VhciHcdStateInvalid,
     #[error(transparent)]
     VhciHcdDriver(#[from] VhciHcdError),
+
+    #[error("Failed to save `vhci_hcd` state to the file-system ({0})")]
+    FsIo(io::Error),
+    #[error("File-system `vhci_hcd` state path already exists, but is not a directory")]
+    FsStateNotADirectory,
 }
 
 pub fn attach_device(host: &str, bus_id: &str) -> Result<u32, Error> {
-    let mut socket = UsbIpSocket::connect_host_and_port(host, UsbIpSocket::DEFAULT_PORT)?;
+    let mut socket = UsbIpSocket::connect_host_and_port(host, UsbIpSocket::DEFAULT_PORT)
+        .map_err(Error::NetworkIo)?;
 
     let rh_port = query_and_import(&mut socket, bus_id)?;
 
@@ -43,17 +55,25 @@ pub fn attach_device(host: &str, bus_id: &str) -> Result<u32, Error> {
 fn query_and_import(socket: &mut UsbIpSocket, bus_id: &str) -> Result<u32, Error> {
     let op_kind = OperationKind::Import;
 
-    socket.send_request_header(op_kind)?;
-    socket.send_encoded(ImportRequest {
-        bus_id: CharBuf::new(bus_id).ok_or(Error::BusIdTooLong)?,
-    })?;
+    socket
+        .send_request_header(op_kind)
+        .map_err(Error::NetworkIo)?;
+    socket
+        .send_encoded(ImportRequest {
+            bus_id: CharBuf::new(bus_id).ok_or(Error::BusIdTooLong)?,
+        })
+        .map_err(Error::NetworkIo)?;
 
-    socket.recv_reply_header(op_kind)??;
-    let reply = socket.recv_encoded::<ImportReply>()?;
+    socket
+        .recv_reply_header(op_kind)
+        .map_err(Error::NetworkIo)??;
+    let reply = socket
+        .recv_encoded::<ImportReply>()
+        .map_err(Error::NetworkIo)?;
 
     if reply
         .usb_device
-            .bus_id
+        .bus_id
         .as_c_str()
         .is_none_or(|bid| bid.to_string_lossy() != bus_id)
     {
@@ -86,12 +106,11 @@ fn import_device(socket: &mut UsbIpSocket, remote_device: &UsbDeviceInfo) -> Res
             remote_device.speed,
         ) {
             Ok(_) => return Ok(rh_port),
-            Err(VhciHcdError::Io(e)) if e.kind() == ErrorKind::ResourceBusy => continue,
+            Err(VhciHcdError::SysfsIo(e)) if e.kind() == ErrorKind::ResourceBusy => continue,
             Err(e) => return Err(e.into()),
         }
     }
 }
-
 
 /// Records the remote connection in a file like `/var/run/vhci_hcd/portX` to be
 /// referenced by other processes without having to interface with the vhci_hcd
@@ -109,16 +128,16 @@ fn record_connection(host: &str, port: u16, bus_id: &str, rh_port: u32) -> Resul
     match fs::create_dir(state_path) {
         Ok(_) => {}
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            if !state_path.metadata()?.is_dir() {
-                return Err(Error::VhciHcdStateInvalid);
+            if !state_path.metadata().map_err(Error::FsIo)?.is_dir() {
+                return Err(Error::FsStateNotADirectory);
             }
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(Error::FsIo(e)),
     }
 
-    let mut perms = fs::metadata(state_path)?.permissions();
+    let mut perms = fs::metadata(state_path).map_err(Error::FsIo)?.permissions();
     perms.set_mode(0o700);
-    fs::set_permissions(state_path, perms)?;
+    fs::set_permissions(state_path, perms).map_err(Error::FsIo)?;
 
     /* ==== create the port file ==== */
 
@@ -129,9 +148,11 @@ fn record_connection(host: &str, port: u16, bus_id: &str, rh_port: u32) -> Resul
         .create(true)
         .truncate(true)
         .mode(0o700)
-        .open(port_path)?;
+        .open(port_path)
+        .map_err(Error::FsIo)?;
 
-    file.write_all(format!("{host} {port} {bus_id}\n").as_bytes())?;
+    file.write_all(format!("{host} {port} {bus_id}\n").as_bytes())
+        .map_err(Error::FsIo)?;
 
     Ok(())
 }

@@ -5,21 +5,27 @@ use std::{
 
 use crate::{
     client::VHCI_STATE_PATH,
-    drivers::vhci_hcd::{HubSpeed, UsbSpeed, VhciDeviceStatus, VhciHcd, VhciHcdError},
+    drivers::vhci_hcd::{Error as VhciHcdError, HubSpeed, UsbSpeed, VhciDeviceStatus, VhciHcd},
 };
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] io::Error),
-    #[error(transparent)]
     VhciHcdDriver(#[from] VhciHcdError),
-    #[error("TODO")]
-    ProtocolError,
-    #[error("TODO")]
-    FailedToReadUdevAttr,
-    #[error("Failed to parse state file")]
-    Parsing(#[from] sscanf::Error),
+
+    #[error("Failed to read file-system `vhci_hcd` state file for device on port {1}")]
+    FsIo(io::Error, u16),
+    #[error("Failed to parse file-system `vhci_hcd` state file for device on port {1}")]
+    FsStateParsing(sscanf::Error, u16),
+
+    #[error(
+        "An I/O error occurred while querying string descriptors from imported USB device with bus ID `{1}` ({0})"
+    )]
+    QueryingLocalUsbDevice(io::Error, String),
+    #[error(
+        "Failed to get value for udev attribute `{attribute}` from USB device with bus ID `{bus_id}`"
+    )]
+    MissingUdevAttribute { bus_id: String, attribute: String },
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -43,7 +49,7 @@ pub struct ImportedDevice {
     pub remote_bus_num: u16,
     pub remote_dev_num: u16,
 
-    pub manufacturer_display: Option<String>,
+    pub vendor_display: Option<String>,
     pub product_display: Option<String>,
 
     pub manufacturer: String,
@@ -98,26 +104,27 @@ pub fn list_imported_devices() -> Result<Vec<ImportedDevice>, Error> {
             .device
             .path
             .as_c_str()
-            .ok_or_else(|| Error::ProtocolError)?
+            .expect("previously decoded string should be valid")
             .to_string_lossy()
             .to_string();
         let local_bus_id = local_dev
             .device
             .bus_id
             .as_c_str()
-            .ok_or_else(|| Error::ProtocolError)?
+            .expect("previously decoded string should be valid")
             .to_string_lossy()
             .to_string();
 
         let (manufacturer, product) = get_device_strings(&local_bus_id)?;
-        let (manufacturer_display, product_display) = get_device_display_strings(
+        let (vendor_display, product_display) = get_device_display_strings(
             #[cfg(feature = "runtime-hwdb")]
             &hwdb,
             local_dev.device.id_vendor,
             local_dev.device.id_product,
         );
 
-        let speed = UsbSpeed::try_from(local_dev.device.speed).map_err(|_| Error::ProtocolError)?;
+        let speed = UsbSpeed::try_from(local_dev.device.speed)
+            .expect("already validated in vhci_hcd driver");
 
         res.push(ImportedDevice {
             port: imported_dev.port,
@@ -133,7 +140,7 @@ pub fn list_imported_devices() -> Result<Vec<ImportedDevice>, Error> {
             local_dev_num: local_dev.device.dev_num as _,
             remote_bus_num: imported_dev.remote_bus_num(),
             remote_dev_num: imported_dev.remote_dev_num(),
-            manufacturer_display,
+            vendor_display,
             product_display,
             manufacturer,
             product,
@@ -164,13 +171,18 @@ fn read_record(rh_port: u16) -> Result<RemoteConnectionInfo, Error> {
 
     let port_path = Path::new(VHCI_STATE_PATH).join(format!("port{rh_port}"));
 
-    let mut file = fs::OpenOptions::new().read(true).open(port_path)?;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .open(port_path)
+        .map_err(|e| Error::FsIo(e, rh_port))?;
 
     let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
+    file.read_to_string(&mut buf)
+        .map_err(|e| Error::FsIo(e, rh_port))?;
 
     let (remote_host, remote_port, remote_bus_id) =
-        sscanf::sscanf!(buf.trim(), "{str} {u16} {str}")?;
+        sscanf::sscanf!(buf.trim(), "{str} {u16} {str}")
+            .map_err(|e| Error::FsStateParsing(e, rh_port))?;
 
     Ok(RemoteConnectionInfo {
         remote_host: remote_host.into(),
@@ -180,23 +192,30 @@ fn read_record(rh_port: u16) -> Result<RemoteConnectionInfo, Error> {
 }
 
 fn get_device_strings(local_bus_id: &str) -> Result<(String, String), Error> {
-    let dev = udev::Device::from_subsystem_sysname("usb".into(), local_bus_id.into())?;
+    let dev = udev::Device::from_subsystem_sysname("usb".into(), local_bus_id.into())
+        .map_err(|e| Error::QueryingLocalUsbDevice(e, local_bus_id.into()))?;
 
     let manufacturer = dev
         .attribute_value("manufacturer")
-        .ok_or_else(|| Error::FailedToReadUdevAttr)?
+        .ok_or_else(|| Error::MissingUdevAttribute {
+            bus_id: local_bus_id.into(),
+            attribute: "manufacturer".into(),
+        })?
         .to_string_lossy()
         .to_string();
     let product = dev
         .attribute_value("product")
-        .ok_or_else(|| Error::FailedToReadUdevAttr)?
+        .ok_or_else(|| Error::MissingUdevAttribute {
+            bus_id: local_bus_id.into(),
+            attribute: "product".into(),
+        })?
         .to_string_lossy()
         .to_string();
 
     Ok((manufacturer, product))
 }
 
-fn get_device_display_strings(
+pub(crate) fn get_device_display_strings(
     #[cfg(feature = "runtime-hwdb")] hwdb: &udev::Hwdb,
     vendor_id: u16,
     product_id: u16,
@@ -204,7 +223,7 @@ fn get_device_display_strings(
     #[cfg(feature = "runtime-hwdb")]
     let (vendor, product) = {
         let results: Vec<_> = hwdb
-            .query(format!("usb:v{vendor_id:04X}p{product_id:04X}"))
+            .query(format!("usb:v{vendor_id:04X}p{product_id:04X}*"))
             .collect();
 
         let mut vendor = results

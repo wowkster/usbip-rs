@@ -1,4 +1,7 @@
-use std::ffi::CStr;
+use std::{
+    ffi::{CStr, OsStr},
+    os::unix::ffi::OsStrExt,
+};
 
 use endian_codec::{DecodeBE, EncodeBE, PackedSize};
 
@@ -113,21 +116,21 @@ impl OperationStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
 pub enum OperationError {
-    #[error("Reuqest failed")]
+    #[error("request failed")]
     RequestFailed,
-    #[error("Device is already exported")]
+    #[error("device is already exported")]
     DeviceBusy,
-    #[error("Device is in error state")]
+    #[error("device is in error state")]
     DeviceError,
-    #[error("Device does not exist on the server")]
+    #[error("device does not exist on the server")]
     NoSuchDevice,
-    #[error("Version in header did not match expected")]
+    #[error("version in header did not match expected")]
     VersionMismatch,
-    #[error("Direction in header did not match expected")]
+    #[error("direction in header did not match expected")]
     DirectionMismatch,
-    #[error("Received PDU with invalid data")]
+    #[error("received PDU with invalid data")]
     InvalidData,
-    #[error("Some other error ocrrured")]
+    #[error("some other error ocrrured")]
     Other,
 }
 
@@ -168,6 +171,15 @@ pub struct UsbDeviceInfo {
     pub b_num_interfaces: u8,
 }
 
+#[derive(Debug, Clone, PackedSize, EncodeBE, DecodeBE)]
+#[repr(C)]
+pub struct UsbInterfaceInfo {
+    pub b_interface_class: u8,
+    pub b_interface_sub_class: u8,
+    pub b_interface_protocol: u8,
+    _padding: u8,
+}
+
 /// Represents a potentially null terminated char buffer
 #[derive(Clone)]
 #[repr(C)]
@@ -193,6 +205,21 @@ impl<const N: usize> TryFrom<&str> for CharBuf<N> {
     type Error = ();
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value.len() >= N {
+            return Err(());
+        }
+
+        let mut buffer = [0; _];
+        buffer[..value.len()].copy_from_slice(&value.as_bytes());
+
+        Ok(Self { buffer })
+    }
+}
+
+impl<const N: usize> TryFrom<&OsStr> for CharBuf<N> {
+    type Error = ();
+
+    fn try_from(value: &OsStr) -> Result<Self, Self::Error> {
         if value.len() >= N {
             return Err(());
         }
@@ -236,4 +263,10 @@ impl<const N: usize> core::fmt::Debug for CharBuf<N> {
         }
         .finish()
     }
+}
+
+#[derive(Debug, Clone, PackedSize, EncodeBE, DecodeBE)]
+#[repr(C)]
+pub struct ListDevicesReply {
+    pub num_devices: u32,
 }

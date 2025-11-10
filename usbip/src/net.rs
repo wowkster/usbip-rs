@@ -2,6 +2,7 @@ use std::{
     io::{self, Read, Write},
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     os::fd::{AsRawFd, RawFd},
+    time::Duration,
 };
 
 use endian_codec::{DecodeBE, EncodeBE};
@@ -40,7 +41,7 @@ impl UsbIpSocket {
         socket.set_tcp_nodelay(true)?;
         socket.set_keepalive(true)?;
 
-        socket.connect(&addr.into())?;
+        socket.connect_timeout(&addr.into(), Duration::from_secs(4))?;
 
         Ok(Self { inner: socket })
     }
