@@ -1,0 +1,10 @@
+[package]
+name = "usbip-rs-daemon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+usbip-rs = {path = "../", default-features = false}
+
+clap = {version = "4.5.51", features = ["derive"]}
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
