@@ -8,7 +8,7 @@ name = "usbip"
 path = "src/lib.rs"
 
 [dependencies]
-compact_str = "0.9.0"
+compact_str ={version =  "0.9.0", features = ["serde" ]}
 derivative = "2.2.0"
 endian_codec = "0.1.1"
 libc = "0.2.177"

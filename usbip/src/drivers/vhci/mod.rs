@@ -7,7 +7,9 @@ use std::{
 
 use compact_str::CompactString;
 
-use crate::proto::{CharBuf, UsbDeviceInfo};
+use crate::{UsbDeviceInfo, UsbSpeed};
+
+pub mod state;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -88,18 +90,18 @@ pub struct VhciHcd {
     num_ports: u32,
     num_controllers: u32,
 
-    /// List of imported device slots allocated by the kernel (len = num_ports)
-    imported_devices: Vec<VhciImportedDevice>,
+    /// List of root hub ports allocated by the kernel (len = num_ports)
+    virtual_devices: Vec<VhciDevice>,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct VhciImportedDevice {
+pub struct VhciDevice {
     pub hub_speed: HubSpeed,
     pub port: u16,
     pub state: VhciDeviceState,
 }
 
-impl VhciImportedDevice {
+impl VhciDevice {
     fn remote_device_id(&self) -> u32 {
         match &self.state {
             VhciDeviceState::NotConnected | VhciDeviceState::NotAssigned => 0,
@@ -124,7 +126,7 @@ impl VhciImportedDevice {
         }
     }
 
-    pub fn connected_device(&self) -> Option<&VhciConnectedDevice> {
+    pub fn connected_device(&self) -> Option<&VhciImportedDevice> {
         match &self.state {
             VhciDeviceState::NotConnected | VhciDeviceState::NotAssigned => None,
             VhciDeviceState::Used(d) | VhciDeviceState::Error(d) => Some(d),
@@ -155,19 +157,19 @@ pub enum VhciDeviceState {
     #[default]
     NotConnected,
     NotAssigned,
-    Used(VhciConnectedDevice),
-    Error(VhciConnectedDevice),
+    Used(VhciImportedDevice),
+    Error(VhciImportedDevice),
 }
 
 #[derive(Debug, Clone)]
-pub struct VhciConnectedDevice {
+pub struct VhciImportedDevice {
     /// Encodes the bus_num and dev_num of the device on the remote machine
     pub remote_device_id: u32,
     /// The socket fd passed to vhci_hcd during device attachment
     pub socket_fd: u32,
     /// The info gathered from udev about the locally mounted device (created by
     /// vhci_hcd)
-    pub device: UsbDeviceInfo, // TODO: use a parsed and validated type (for speed and other parameters)
+    pub device: UsbDeviceInfo,
 }
 
 #[derive(
@@ -190,17 +192,14 @@ pub enum HubSpeed {
     Super,
 }
 
-const USBIP_VHCI_BUS_TYPE: &str = "platform";
-const USBIP_VHCI_DEVICE_NAME: &str = "vhci_hcd.0";
-
 impl VhciHcd {
     pub fn open() -> Result<Self, Error> {
         let context = udev::Udev::new().map_err(Error::CreatingUdevContext)?;
 
         let device = udev::Device::from_subsystem_sysname_with_context(
             context.clone(),
-            USBIP_VHCI_BUS_TYPE.into(),
-            USBIP_VHCI_DEVICE_NAME.into(),
+            "platform".into(),
+            "vhci_hcd.0".into(),
         )
         .map_err(|e| {
             // udev returns ENODEV if the sysfs device was not there
@@ -256,7 +255,7 @@ impl VhciHcd {
             device,
             num_ports,
             num_controllers,
-            imported_devices: vec![Default::default(); num_ports as usize],
+            virtual_devices: vec![Default::default(); num_ports as usize],
         };
 
         this.refresh_improted_device_list()?;
@@ -325,7 +324,7 @@ impl VhciHcd {
                     s @ (VhciDeviceStatus::Used | VhciDeviceStatus::Error) => {
                         let device = self.query_imported_device(&status_line.local_bus_id)?;
 
-                        let connected_device = VhciConnectedDevice {
+                        let connected_device = VhciImportedDevice {
                             remote_device_id: status_line.device_id,
                             socket_fd: status_line.socket_fd,
                             device,
@@ -339,7 +338,7 @@ impl VhciHcd {
                     }
                 };
 
-                self.imported_devices[j as usize] = VhciImportedDevice {
+                self.virtual_devices[j as usize] = VhciDevice {
                     hub_speed: speed,
                     port: status_line.port,
                     state,
@@ -403,13 +402,13 @@ impl VhciHcd {
             };
         }
 
-        let path = udev
-            .syspath()
-            .to_str()
-            .ok_or_else(|| Error::UsbDeviceUtf8UdevAttribute {
-                bus_id: local_bus_id.into(),
-                attribute: "syspath".into(),
-            })?;
+        let sys_path =
+            udev.syspath()
+                .to_str()
+                .ok_or_else(|| Error::UsbDeviceUtf8UdevAttribute {
+                    bus_id: local_bus_id.into(),
+                    attribute: "syspath".into(),
+                })?;
         let bus_id = udev
             .sysname()
             .to_str()
@@ -419,11 +418,11 @@ impl VhciHcd {
             })?;
 
         Ok(UsbDeviceInfo {
-            path: CharBuf::new_truncated(&path),
-            bus_id: CharBuf::new_truncated(&bus_id),
+            sys_path: sys_path.into(),
+            bus_id: bus_id.into(),
             bus_num: parse_attr_hex!(u32, busnum),
             dev_num: parse_attr_hex!(u32, devnum),
-            speed: parse_attr!(UsbSpeed, speed) as _, // TODO: this is super ew (lets make a struct that has the parsed attrs)
+            speed: parse_attr!(UsbSpeed, speed),
             id_vendor: parse_attr_hex!(u16, idVendor),
             id_product: parse_attr_hex!(u16, idProduct),
             bcd_device: parse_attr_hex!(u16, bcdDevice),
@@ -438,7 +437,7 @@ impl VhciHcd {
 
     pub fn get_free_port(&mut self, speed: UsbSpeed) -> Result<u32, Error> {
         for i in 0..self.num_ports {
-            let device = &self.imported_devices[i as usize];
+            let device = &self.virtual_devices[i as usize];
 
             match speed {
                 UsbSpeed::Super => {
@@ -525,8 +524,8 @@ impl VhciHcd {
         self.total_port_count() / self.controller_count()
     }
 
-    pub fn cached_imported_devices(&self) -> &[VhciImportedDevice] {
-        &self.imported_devices
+    pub fn cached_imported_devices(&self) -> &[VhciDevice] {
+        &self.virtual_devices
     }
 }
 
@@ -571,39 +570,4 @@ fn parse_vhci_hcd_status_attr(
     text: &str,
 ) -> impl Iterator<Item = Result<VhciHcdStatusLine, VhciHcdStatusParseError>> {
     text.lines().skip(1).map(|l| l.parse())
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    strum::EnumString,
-    num_enum::TryFromPrimitive,
-    serde::Serialize,
-)]
-#[serde(rename_all = "snake_case")]
-#[repr(u32)]
-pub enum UsbSpeed {
-    /// Enumerating
-    #[strum(serialize = "unknown")]
-    Unknown,
-    /// USB 1.1
-    #[strum(serialize = "1.5")]
-    Low,
-    /// USB 1.1
-    #[strum(serialize = "12")]
-    Full,
-    /// USB 2.0
-    #[strum(serialize = "480")]
-    High,
-    /// Wireless (USB 2.5)
-    #[strum(serialize = "53.3-480")]
-    Wireless,
-    /// USB 3.0
-    #[strum(serialize = "5000")]
-    Super,
 }

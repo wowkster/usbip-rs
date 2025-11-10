@@ -1,8 +1,6 @@
-use std::{io, path::Path};
-
-use crate::{
-    client::VHCI_STATE_PATH,
-    drivers::vhci_hcd::{Error as VhciHcdError, VhciDeviceStatus, VhciHcd},
+use crate::drivers::vhci::{
+    Error as VhciHcdError, VhciDeviceStatus, VhciHcd,
+    state::{FsStateError, delete_connection_record},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -12,8 +10,8 @@ pub enum Error {
     #[error("Port number is greater than the max port number advertised by vhci_hcd")]
     InvalidPortNumber,
 
-    #[error("Failed to save `vhci_hcd` state to the file-system ({0})")]
-    FsIo(io::Error),
+    #[error(transparent)]
+    FsState(FsStateError),
 }
 
 pub fn detach_device(port: u16) -> Result<(), Error> {
@@ -30,36 +28,11 @@ pub fn detach_device(port: u16) -> Result<(), Error> {
         }
     }
 
-    remove_record(port).map_err(Error::FsIo)?;
+    delete_connection_record(port).map_err(Error::FsState)?;
 
     vhci_hcd.detach_device(port)?;
 
     tracing::info!("port {port} detached successfully");
-
-    Ok(())
-}
-
-pub fn remove_record(port: u16) -> io::Result<()> {
-    use std::fs;
-
-    let state_path = Path::new(VHCI_STATE_PATH);
-    let port_path = state_path.join(format!("port{port}"));
-
-    if let Err(e) = fs::remove_file(port_path) {
-        if e.kind() != io::ErrorKind::NotFound {
-            return Err(e);
-        }
-    }
-
-    if let Err(e) = fs::remove_dir(state_path) {
-        if e.kind() != io::ErrorKind::DirectoryNotEmpty && e.kind() != io::ErrorKind::NotFound {
-            return Err(e);
-        }
-
-        if e.kind() == io::ErrorKind::NotFound {
-            tracing::warn!("vhci_hcd state directory not found")
-        }
-    }
 
     Ok(())
 }

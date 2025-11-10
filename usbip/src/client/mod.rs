@@ -1,3 +1,6 @@
+//! Implements higher level client routines which compose usbip network requests
+//! and vhci_hcd driver commands
+
 mod attach;
 mod detach;
 mod list;
@@ -8,4 +11,3 @@ pub use detach::detach_device;
 pub use list::{ExportedDevice, list_exported_devices};
 pub use port::{ImportedDevice, list_imported_devices};
 
-const VHCI_STATE_PATH: &str = "/var/run/vhci_hcd";

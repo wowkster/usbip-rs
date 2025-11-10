@@ -1,2 +1,2 @@
-pub mod usb_host;
-pub mod vhci_hcd;
+pub mod stub;
+pub mod vhci;

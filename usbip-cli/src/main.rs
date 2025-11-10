@@ -2,11 +2,12 @@ use clap::Parser;
 use colored::Colorize;
 use tracing_subscriber::filter::LevelFilter;
 use usbip::{
+    UsbSpeed,
     client::{
         ExportedDevice, ImportedDevice, attach_device, detach_device, list_exported_devices,
         list_imported_devices,
     },
-    drivers::vhci_hcd::{UsbSpeed, VhciDeviceStatus},
+    drivers::vhci::VhciDeviceStatus,
 };
 
 #[derive(clap::Parser)]
@@ -155,6 +156,8 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
     println!("====================");
 
     for device in devices {
+        let info = &device.local_device_info;
+
         print!("Port {:02}: <", device.port);
 
         match device.status {
@@ -166,7 +169,7 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
 
         print!("> at ");
 
-        match device.speed {
+        match info.speed {
             UsbSpeed::Unknown => print!("Unknown Speed"),
             UsbSpeed::Low => print!("Low Speed(1.5Mbps)"),
             UsbSpeed::Full => print!("Full Speed(12Mbps)"),
@@ -179,7 +182,7 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
 
         print!("       ");
 
-        if let Some(vendor) = &device.vendor_display {
+        if let Some(vendor) = &device.vendor {
             print!("{vendor}");
         } else {
             print!("unknown vendor");
@@ -187,15 +190,15 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
 
         print!(" : ");
 
-        if let Some(product) = &device.product_display {
+        if let Some(product) = &device.product {
             print!("{product}");
         } else {
             print!("unknown product");
         }
 
-        println!(" ({:04x}:{:04x})", device.id_vendor, device.id_product);
+        println!(" ({:04x}:{:04x})", info.id_vendor, info.id_product);
 
-        print!("{:>10} -> ", device.local_bus_id);
+        print!("{:>10} -> ", info.bus_id);
 
         if let Some(url) = &device.url {
             print!("{}", url);
@@ -219,9 +222,11 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
     println!(" - {}", host);
 
     for device in devices {
-        print!("{:>11}: ", device.bus_id,);
+        let info = &device.remote_device_info;
 
-        if let Some(vendor) = &device.vendor_display {
+        print!("{:>11}: ", info.bus_id,);
+
+        if let Some(vendor) = &device.vendor {
             print!("{vendor}");
         } else {
             print!("unknown vendor");
@@ -229,25 +234,22 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
 
         print!(" : ");
 
-        if let Some(product) = &device.product_display {
+        if let Some(product) = &device.product {
             print!("{product}");
         } else {
             print!("unknown product");
         }
 
-        println!(" ({:04x}:{:04x})", device.id_vendor, device.id_product);
+        println!(" ({:04x}:{:04x})", info.id_vendor, info.id_product);
 
-        println!("{:>11}: {}", "", device.sys_path);
+        println!("{:>11}: {}", "", info.sys_path);
 
         print!("{:>11}: ", "");
 
-        if device.b_device_class == 0
-            && device.b_device_sub_class == 0
-            && device.b_device_protocol == 0
-        {
+        if info.b_device_class == 0 && info.b_device_sub_class == 0 && info.b_device_protocol == 0 {
             print!("(Defined at Interface level)");
         } else {
-            if let Some(class) = &device.class_display {
+            if let Some(class) = &device.class {
                 print!("{class}");
             } else {
                 print!("unknown class");
@@ -255,7 +257,7 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
 
             print!(" / ");
 
-            if let Some(sub_class) = &device.sub_class_display {
+            if let Some(sub_class) = &device.sub_class {
                 print!("{sub_class}");
             } else {
                 print!("unknown subclass");
@@ -263,7 +265,7 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
 
             print!(" / ");
 
-            if let Some(protocol) = &device.protocol_display {
+            if let Some(protocol) = &device.protocol {
                 print!("{protocol}");
             } else {
                 print!("unknown protocol");
@@ -272,13 +274,13 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
 
         println!(
             " ({:02x}/{:02x}/{:02x})",
-            device.b_device_class, device.b_device_sub_class, device.b_device_protocol
+            info.b_device_class, info.b_device_sub_class, info.b_device_protocol
         );
 
         for (i, iface) in device.interfaces.iter().enumerate() {
             print!("{:>11}: {:>2} - ", "", i);
 
-            if let Some(class) = &iface.class_display {
+            if let Some(class) = &iface.class {
                 print!("{class}");
             } else {
                 print!("unknown class");
@@ -286,7 +288,7 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
 
             print!(" / ");
 
-            if let Some(sub_class) = &iface.sub_class_display {
+            if let Some(sub_class) = &iface.sub_class {
                 print!("{sub_class}");
             } else {
                 print!("unknown subclass");
@@ -294,7 +296,7 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
 
             print!(" / ");
 
-            if let Some(protocol) = &iface.protocol_display {
+            if let Some(protocol) = &iface.protocol {
                 print!("{protocol}");
             } else {
                 print!("unknown protocol");
