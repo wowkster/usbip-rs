@@ -26,8 +26,8 @@ pub enum FsStateError {
         "Failed to read userspace `vhci_hcd` state from the file-system for device on port {1} ({0})"
     )]
     IoRead(io::Error, u16),
-    #[error("Failed to parse file-system `vhci_hcd` state file for device on port {1}")]
-    Parsing(sscanf::Error, u16),
+    #[error("Failed to parse file-system `vhci_hcd` state file for device on port {0}")]
+    Parsing(u16),
 
     #[error("Failed to delete userspace `vhci_hcd` state from the file-system ({0})")]
     IoRemove(io::Error),
@@ -106,7 +106,7 @@ pub fn read_connection_record(rh_port: u16) -> Result<ConnectionRecord, FsStateE
         .map_err(|e| FsStateError::IoRead(e, rh_port))?;
 
     let (remote_host, port, remote_bus_id) = sscanf::sscanf!(buf.trim(), "{str} {u16} {str}")
-        .map_err(|e| FsStateError::Parsing(e, rh_port))?;
+        .map_err(|_| FsStateError::Parsing( rh_port))?;
 
     Ok(ConnectionRecord {
         host: remote_host.into(),
