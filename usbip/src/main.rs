@@ -92,7 +92,7 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        Command::Detach { port } => match detach_device(port) {
+        Command::Detach { port } => match detach_device(port, true) {
             Ok(_) => {
                 if args.json_output {
                     let v = serde_json::json!({

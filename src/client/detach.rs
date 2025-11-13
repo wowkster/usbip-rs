@@ -14,7 +14,7 @@ pub enum Error {
     FsState(FsStateError),
 }
 
-pub fn detach_device(port: u16) -> Result<(), Error> {
+pub fn detach_device(port: u16, remove_state_dir: bool) -> Result<(), Error> {
     let mut vhci_hcd = VhciHcd::open()?;
 
     if port >= vhci_hcd.total_port_count() {
@@ -28,7 +28,7 @@ pub fn detach_device(port: u16) -> Result<(), Error> {
         }
     }
 
-    delete_connection_record(port).map_err(Error::FsState)?;
+    delete_connection_record(port, remove_state_dir).map_err(Error::FsState)?;
 
     vhci_hcd.detach_device(port)?;
 

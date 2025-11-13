@@ -106,7 +106,7 @@ pub fn read_connection_record(rh_port: u16) -> Result<ConnectionRecord, FsStateE
         .map_err(|e| FsStateError::IoRead(e, rh_port))?;
 
     let (remote_host, port, remote_bus_id) = sscanf::sscanf!(buf.trim(), "{str} {u16} {str}")
-        .map_err(|_| FsStateError::Parsing( rh_port))?;
+        .map_err(|_| FsStateError::Parsing(rh_port))?;
 
     Ok(ConnectionRecord {
         host: remote_host.into(),
@@ -118,7 +118,7 @@ pub fn read_connection_record(rh_port: u16) -> Result<ConnectionRecord, FsStateE
 /// Deletes a previously saved connection record from the file system state
 /// directory. If no other entries exist in the `/var/run/vhci_hcd` directory,
 /// it is also removed.
-pub fn delete_connection_record(port: u16) -> Result<(), FsStateError> {
+pub fn delete_connection_record(port: u16, remove_state_dir: bool) -> Result<(), FsStateError> {
     let state_path = Path::new(VHCI_STATE_PATH);
     let port_path = state_path.join(format!("port{port}"));
 
@@ -128,13 +128,15 @@ pub fn delete_connection_record(port: u16) -> Result<(), FsStateError> {
         }
     }
 
-    if let Err(e) = fs::remove_dir(state_path) {
-        if e.kind() != io::ErrorKind::DirectoryNotEmpty && e.kind() != io::ErrorKind::NotFound {
-            return Err(FsStateError::IoRemove(e));
-        }
+    if remove_state_dir {
+        if let Err(e) = fs::remove_dir(state_path) {
+            if e.kind() != io::ErrorKind::DirectoryNotEmpty && e.kind() != io::ErrorKind::NotFound {
+                return Err(FsStateError::IoRemove(e));
+            }
 
-        if e.kind() == io::ErrorKind::NotFound {
-            tracing::warn!("vhci_hcd state directory not found")
+            if e.kind() == io::ErrorKind::NotFound {
+                tracing::warn!("vhci_hcd state directory not found")
+            }
         }
     }
 
