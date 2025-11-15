@@ -19,7 +19,7 @@ This rewrite aims to improve the user and developer experience when interacting 
     - Better debug logging using tracing
 - Legacy CLI output mode for backwards compatability with the original CLI interface
 - Better performance (does not read in hwdb on startup)
-- More secure (100% safe rust)
+- More secure (implemented in 100% safe rust using `#![forbid(unsafe_code)]`)
 - Fixes some bugs in the original implemenation (like not being able to address more than 256 virtual device ports)
 
 ## Planned Features
