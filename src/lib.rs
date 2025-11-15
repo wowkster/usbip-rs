@@ -1,6 +1,6 @@
+#![forbid(unsafe_code)]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-#![feature(io_error_uncategorized)]
 
 use compact_str::{CompactString, ToCompactString};
 

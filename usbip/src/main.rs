@@ -4,10 +4,13 @@ use tracing_subscriber::filter::LevelFilter;
 use usbip::{
     UsbSpeed,
     client::{
-        ExportedDevice, ImportedDevice, attach_device, detach_device, list_exported_devices,
-        list_imported_devices,
+        attach::attach_device,
+        detach::detach_device,
+        list::{ExportedDevice, list_exported_devices},
+        port::{ImportedDevice, list_imported_devices},
     },
     drivers::vhci::VhciDeviceStatus,
+    server::{bind::bind_device, unbind::unbind_device},
 };
 
 #[derive(clap::Parser)]
@@ -54,6 +57,16 @@ enum Command {
         // TODO: TCP port? (use flatten for corrext grouping)
         #[arg(short = 'l', long, group = "list_mode")]
         local: bool,
+    },
+    /// Bind device to usbip_host.ko
+    Bind {
+        #[arg(short = 'b', long)]
+        bus_id: String,
+    },
+    /// Unbind device from usbip_host.ko
+    Unbind {
+        #[arg(short = 'b', long)]
+        bus_id: String,
     },
     /// Show imported USB devices
     Port,
@@ -135,6 +148,38 @@ fn main() {
                 todo!("list local devices");
             }
         }
+        Command::Bind { bus_id } => match bind_device(&bus_id) {
+            Ok(_) => {
+                if args.json_output {
+                    let v = serde_json::json!({});
+
+                    println!("{}", serde_json::to_string(&v).unwrap())
+                } else {
+                    // TODO: what should this output be?
+                    println!("Device with bus id {bus_id} bound successfully")
+                }
+            }
+            Err(e) => {
+                eprintln!("{} {e}", "Error:".red());
+                std::process::exit(1);
+            }
+        },
+        Command::Unbind { bus_id } => match unbind_device(&bus_id) {
+            Ok(_) => {
+                if args.json_output {
+                    let v = serde_json::json!({});
+
+                    println!("{}", serde_json::to_string(&v).unwrap())
+                } else {
+                    // TODO: what should this output be?
+                    println!("Device with bus id {bus_id} unbound successfully")
+                }
+            }
+            Err(e) => {
+                eprintln!("{} {e}", "Error:".red());
+                std::process::exit(1);
+            }
+        },
         Command::Port => match list_imported_devices() {
             Ok(devices) => {
                 if args.json_output {

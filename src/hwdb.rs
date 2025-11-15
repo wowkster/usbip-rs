@@ -60,7 +60,8 @@ pub(crate) fn get_class_display_strings(
     #[cfg(feature = "runtime-hwdb")]
     let (class, sub_class, protocol) = {
         // TODO: investigate using interface level queries first and then
-        // falling back to device level if none are found
+        // falling back to device level if none are found. We should check what
+        // lsusb does here.
 
         // TODO: add an option to fall back to baked hwdb
 

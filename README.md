@@ -15,6 +15,7 @@ This rewrite aims to improve the user and developer experience when interacting 
     - Nicer argument parsing using [`clap`](https://crates.io/crates/clap)
     - Improved output format that is easier to read and shows more data
     - JSON output mode for easy parsing
+        - If usbip-rs-cli exits with code 0, stdout will contain a JSON object on a single line with a terminating new line (`\n`) character
     - Significantly improved error messages
     - Better debug logging using tracing
 - Legacy CLI output mode for backwards compatability with the original CLI interface

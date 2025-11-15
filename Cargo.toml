@@ -18,7 +18,7 @@ path = "src/lib.rs"
 compact_str ={version =  "0.9.0", features = ["serde" ]}
 derivative = "2.2.0"
 endian_codec = "0.1.1"
-libc = "0.2.177"
+nix = { version = "0.30.1", features = ["user"] }
 num_enum = "0.7.5"
 serde = { version = "1.0.228", features = ["derive"] }
 socket2 = "0.6.1"

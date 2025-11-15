@@ -71,8 +71,9 @@ pub enum Error {
     UsbDeviceParsingUdevAttribute { bus_id: String, attribute: String },
 }
 
+// TODO: factor this out for common sysfs access errors later
 fn format_permissions_help() -> String {
-    if unsafe { libc::geteuid() } != 0 {
+    if !nix::unistd::geteuid().is_root() {
         " (not running as root). Try executing again with sudo.".into()
     } else {
         " (already running as root. how did we get ourselves here?)".into()
@@ -203,7 +204,9 @@ impl VhciHcd {
         )
         .map_err(|e| {
             // udev returns ENODEV if the sysfs device was not there
-            if e.raw_os_error().is_some_and(|c| c == libc::ENODEV) {
+            if e.raw_os_error()
+                .is_some_and(|c| nix::errno::Errno::from_raw(c) == nix::errno::Errno::ENODEV)
+            {
                 Error::VhciDeviceNotFound
             } else {
                 Error::VhciDeviceUdev(e.into())
