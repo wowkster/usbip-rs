@@ -7,7 +7,10 @@ use std::{
 
 use compact_str::CompactString;
 
-use crate::{UsbDeviceInfo, UsbSpeed};
+use crate::{
+    UsbDeviceInfo, UsbSpeed,
+    util::{UsbInfoExtractError, extract_usb_info_from_udev_device},
+};
 
 pub mod state;
 
@@ -57,18 +60,11 @@ pub enum Error {
         "An I/O error occurred while querying imported USB device with bus ID `{bus_id}` ({error})"
     )]
     QueryingLocalUsbDevice { bus_id: String, error: io::Error },
-    #[error(
-        "Failed to get value for udev attribute `{attribute}` from USB device with bus ID `{bus_id}`"
-    )]
-    UsbDeviceMissingUdevAttribute { bus_id: String, attribute: String },
-    #[error(
-        "Failed to decode value of udev attribute `{attribute}` of USB device with bus ID `{bus_id}` as UTF-8"
-    )]
-    UsbDeviceUtf8UdevAttribute { bus_id: String, attribute: String },
-    #[error(
-        "Failed to parse value for udev attribute `{attribute}` of USB device with bus ID `{bus_id}`"
-    )]
-    UsbDeviceParsingUdevAttribute { bus_id: String, attribute: String },
+    #[error("Failed to query USB device with bus ID `{bus_id}` ({error})")]
+    UsbInfoExtraction {
+        bus_id: String,
+        error: UsbInfoExtractError,
+    },
 }
 
 // TODO: factor this out for common sysfs access errors later
@@ -367,74 +363,9 @@ impl VhciHcd {
             error,
         })?;
 
-        macro_rules! extract_attr {
-            ($name:ident) => {
-                udev.attribute_value(stringify!($name))
-                    .ok_or_else(|| Error::UsbDeviceMissingUdevAttribute {
-                        bus_id: local_bus_id.into(),
-                        attribute: stringify!($name).into(),
-                    })?
-                    .to_str()
-                    .ok_or_else(|| Error::UsbDeviceUtf8UdevAttribute {
-                        bus_id: local_bus_id.into(),
-                        attribute: stringify!($name).into(),
-                    })?
-                    .trim()
-            };
-        }
-
-        macro_rules! parse_attr {
-            ($ty:ty, $name:ident) => {
-                <$ty>::from_str(extract_attr!($name)).map_err(|_| {
-                    Error::UsbDeviceParsingUdevAttribute {
-                        bus_id: local_bus_id.into(),
-                        attribute: stringify!($name).into(),
-                    }
-                })?
-            };
-        }
-
-        macro_rules! parse_attr_hex {
-            ($ty:ty, $name:ident) => {
-                <$ty>::from_str_radix(extract_attr!($name), 16).map_err(|_| {
-                    Error::UsbDeviceParsingUdevAttribute {
-                        bus_id: local_bus_id.into(),
-                        attribute: stringify!($name).into(),
-                    }
-                })?
-            };
-        }
-
-        let sys_path =
-            udev.syspath()
-                .to_str()
-                .ok_or_else(|| Error::UsbDeviceUtf8UdevAttribute {
-                    bus_id: local_bus_id.into(),
-                    attribute: "syspath".into(),
-                })?;
-        let bus_id = udev
-            .sysname()
-            .to_str()
-            .ok_or_else(|| Error::UsbDeviceUtf8UdevAttribute {
-                bus_id: local_bus_id.into(),
-                attribute: "sysname".into(),
-            })?;
-
-        Ok(UsbDeviceInfo {
-            sys_path: sys_path.into(),
-            bus_id: bus_id.into(),
-            bus_num: parse_attr_hex!(u32, busnum),
-            dev_num: parse_attr_hex!(u32, devnum),
-            speed: parse_attr!(UsbSpeed, speed),
-            id_vendor: parse_attr_hex!(u16, idVendor),
-            id_product: parse_attr_hex!(u16, idProduct),
-            bcd_device: parse_attr_hex!(u16, bcdDevice),
-            b_device_class: parse_attr_hex!(u8, bDeviceClass),
-            b_device_sub_class: parse_attr_hex!(u8, bDeviceSubClass),
-            b_device_protocol: parse_attr_hex!(u8, bDeviceProtocol),
-            b_configuration_value: parse_attr_hex!(u8, bConfigurationValue), // TODO: special handling
-            b_num_configurations: parse_attr_hex!(u8, bNumConfigurations),
-            b_num_interfaces: parse_attr_hex!(u8, bNumInterfaces), // TODO: special handling
+        extract_usb_info_from_udev_device(&udev).map_err(|e| Error::UsbInfoExtraction {
+            bus_id: local_bus_id.into(),
+            error: e,
         })
     }
 

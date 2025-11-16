@@ -12,6 +12,7 @@ mod hwdb;
 pub mod net;
 pub mod proto;
 pub mod server;
+mod util;
 
 #[derive(
     Debug,
@@ -46,6 +47,12 @@ pub enum UsbSpeed {
     /// USB 3.0
     #[strum(serialize = "5000")]
     Super,
+    /// USB 3.1
+    ///
+    /// `USB_SSP_GEN_2x1` and `USB_SSP_GEN_1x2` will report `10000` while
+    /// `USB_SSP_GEN_2x2` will report `20000`
+    #[strum(serialize = "10000", serialize = "20000")]
+    SuperPlus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

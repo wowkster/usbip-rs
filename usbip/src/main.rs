@@ -10,7 +10,11 @@ use usbip::{
         port::{ImportedDevice, list_imported_devices},
     },
     drivers::vhci::VhciDeviceStatus,
-    server::{bind::bind_device, unbind::unbind_device},
+    server::{
+        bind::bind_device,
+        list_local::{ExportableDevice, list_local_devices},
+        unbind::unbind_device,
+    },
 };
 
 #[derive(clap::Parser)]
@@ -50,13 +54,15 @@ enum Command {
         // TODO: TCP port?
     },
     /// List exportable or local USB devices
-    #[group(required = true, multiple = false)]
     List {
-        #[arg(short = 'r', long, group = "list_mode")]
+        #[arg(short = 'r', long, conflicts_with = "local")]
         remote_host: Option<String>,
         // TODO: TCP port? (use flatten for corrext grouping)
-        #[arg(short = 'l', long, group = "list_mode")]
+        #[arg(short = 'l', long, conflicts_with = "remote_host")]
         local: bool,
+        /// Prints the output in a parsable format (use --json-output instead for better results)
+        #[arg(short = 'p', long)]
+        parsable: bool,
     },
     /// Bind device to usbip_host.ko
     Bind {
@@ -122,7 +128,11 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        Command::List { remote_host, local } => {
+        Command::List {
+            remote_host,
+            local,
+            parsable,
+        } => {
             assert_ne!(remote_host.is_some(), local);
 
             if let Some(host) = remote_host {
@@ -144,8 +154,16 @@ fn main() {
                     }
                 }
             } else {
-                // TODO: nice colored error otuput (even in legacy mode)
-                todo!("list local devices");
+                match list_local_devices() {
+                    Ok(devices) => {
+                        if args.json_output {
+                            println!("{}", serde_json::to_string(&devices).unwrap())
+                        } else {
+                            print_exportable_devices(&devices, parsable);
+                        }
+                    }
+                    Err(e) => todo!("{e} ({e:?})"),
+                }
             }
         }
         Command::Bind { bus_id } => match bind_device(&bus_id) {
@@ -221,6 +239,9 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
             UsbSpeed::High => print!("High Speed(480Mbps)"),
             UsbSpeed::Wireless => print!("Wireless"),
             UsbSpeed::Super => print!("Super Speed(5000Mbps)"),
+            // not in the original impl since it was stanrdized after that code
+            // was written, but probably good to have
+            UsbSpeed::SuperPlus => print!("Super Speed Plus(10000Mbps)"),
         }
 
         println!();
@@ -261,6 +282,7 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
 }
 
 fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
+    // surely this is wrong right? lol. its what the c impl does so we keep it.
     println!("Exportable USB devices");
     println!("======================");
 
@@ -350,6 +372,49 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
             println!(
                 " ({:02x}/{:02x}/{:02x})",
                 iface.b_interface_class, iface.b_interface_sub_class, iface.b_interface_protocol
+            );
+        }
+
+        println!();
+    }
+}
+
+fn print_exportable_devices(devices: &[ExportableDevice], parsable: bool) {
+    for device in devices {
+        if parsable {
+            print!(
+                "busid={}#usbid={:04x}:{:04x}#",
+                device.device_info.bus_id,
+                device.device_info.id_vendor,
+                device.device_info.id_product
+            );
+        } else {
+            println!(
+                " - busid {} ({:04x}:{:04x})",
+                device.device_info.bus_id,
+                device.device_info.id_vendor,
+                device.device_info.id_product
+            );
+
+            print!("   ");
+
+            if let Some(vendor) = &device.vendor {
+                print!("{vendor}");
+            } else {
+                print!("unknown vendor");
+            }
+
+            print!(" : ");
+
+            if let Some(product) = &device.product {
+                print!("{product}");
+            } else {
+                print!("unknown product");
+            }
+
+            println!(
+                " ({:04x}:{:04x})",
+                device.device_info.id_vendor, device.device_info.id_product
             );
         }
 
