@@ -1,0 +1,4 @@
+[unstable]
+# Recompile the standard library to reduce binary size (prevents statically
+# linking against unused components
+build-std = ["core", "alloc", "std"]

@@ -35,3 +35,13 @@ default = ["baked-hwdb"]
 
 baked-hwdb = ["dep:usb-ids"]
 runtime-hwdb = ["udev/hwdb"]
+
+# These settings reduce the binary sizes by ~30%. We could be more aggressive if
+# we wanted to, but this is a pretty easy win for almost no effort. Unless it
+# becomes an harder constraint, we're not investing more effort into it for the
+# time being.
+[profile.release]
+codegen-units = 1
+strip = "symbols"
+lto   = "fat"
+opt-level = "s"
