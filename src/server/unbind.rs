@@ -1,6 +1,10 @@
 use std::{ffi::OsStr, io};
 
-use crate::drivers::{DriverUnbindingError, SysfsIoError, unbind_usb_driver};
+use crate::drivers::{
+    DriverUnbindingError, SysfsIoError,
+    host::{MatchListOperation, UsbipHost},
+    unbind_usb_driver,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -22,6 +26,8 @@ pub enum Error {
 
     #[error("Cannot write to `usbip-host` device to update device ID match list: {0}")]
     UpdatingMatchList(SysfsIoError),
+    #[error("Cannot write to `usbip-host` device to trigger device driver rebinding: {0}")]
+    RebindingDevice(SysfsIoError),
 }
 
 pub fn unbind_device(local_bus_id: &str) -> Result<(), Error> {
@@ -48,6 +54,11 @@ pub fn unbind_device(local_bus_id: &str) -> Result<(), Error> {
             bus_id: local_bus_id.into(),
         }
     })?;
+
+    UsbipHost::update_bus_id_match_list(local_bus_id, MatchListOperation::Remove)
+        .map_err(Error::UpdatingMatchList)?;
+
+    UsbipHost::trigger_device_rebind(local_bus_id).map_err(Error::RebindingDevice)?;
 
     Ok(())
 }

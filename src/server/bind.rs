@@ -1,8 +1,9 @@
-use std::{ffi::OsStr, io, path::Path};
+use std::{ffi::OsStr, io};
 
 use crate::drivers::{
-    DriverBindingError, DriverUnbindingError, SysfsIoError, bind_usb_driver, unbind_usb_driver,
-    write_sysfs_attribute,
+    DriverBindingError, DriverUnbindingError, SysfsIoError, bind_usb_driver,
+    host::{MatchListOperation, UsbipHost},
+    unbind_usb_driver,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -104,14 +105,14 @@ pub fn bind_device(local_bus_id: &str) -> Result<(), Error> {
         })?;
     }
 
-    update_bus_id_match_list(local_bus_id, MatchListOperation::Add)
+    UsbipHost::update_bus_id_match_list(local_bus_id, MatchListOperation::Add)
         .map_err(Error::UpdatingMatchList)?;
 
     if let Err(e) = bind_usb_driver(OsStr::new("usbip-host"), local_bus_id) {
         // try to remove, but if we encounter an error, there isnt much we can
         // do. if we successfully added the first time then its likely that this
         // will succeed.
-        let _ = update_bus_id_match_list(local_bus_id, MatchListOperation::Remove);
+        let _ = UsbipHost::update_bus_id_match_list(local_bus_id, MatchListOperation::Remove);
 
         return Err(Error::BindingDriver {
             source: e,
@@ -121,31 +122,4 @@ pub fn bind_device(local_bus_id: &str) -> Result<(), Error> {
     };
 
     Ok(())
-}
-
-enum MatchListOperation {
-    Add,
-    Remove,
-}
-
-/// Adds the bus ID to usbip-host's match list. This is needed because when we
-/// write to the `bind` attribute provided by the linux driver core, it won't
-/// actually probe the usbip-host driver unless it's device id match table is
-/// compatible with the device. It would be inefficient if usbip-host advertised
-/// a match table that matched all devices, so we need to dyanmically modify it
-/// at runtime before attempting to bind the driver to the device.
-///
-/// /// TODO: move into UsbipHost driver (not a standard sysfs driver operation)
-fn update_bus_id_match_list(
-    bus_id: &str,
-    operation: MatchListOperation,
-) -> Result<(), SysfsIoError> {
-    let path = Path::new("/sys/bus/usb/drivers/usbip-host/match_busid");
-
-    let buf = match operation {
-        MatchListOperation::Add => format!("add {bus_id}"),
-        MatchListOperation::Remove => format!("del {bus_id}"),
-    };
-
-    write_sysfs_attribute(path, buf)
 }
