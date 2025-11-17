@@ -55,11 +55,24 @@ enum Command {
     },
     /// List exportable or local USB devices
     List {
-        #[arg(short = 'r', long, conflicts_with = "local")]
+        #[arg(short = 'r', long, conflicts_with = "local", conflicts_with = "device")]
         remote_host: Option<String>,
         // TODO: TCP port? (use flatten for corrext grouping)
-        #[arg(short = 'l', long, conflicts_with = "remote_host")]
+        #[arg(
+            short = 'l',
+            long,
+            conflicts_with = "remote_host",
+            conflicts_with = "device"
+        )]
         local: bool,
+        #[arg(
+            short = 'd',
+            long,
+            conflicts_with = "local",
+            conflicts_with = "remote_host"
+        )]
+        device: bool,
+
         /// Prints the output in a parsable format (use --json-output instead for better results)
         #[arg(short = 'p', long)]
         parsable: bool,
@@ -131,9 +144,11 @@ fn main() {
         Command::List {
             remote_host,
             local,
+            device,
             parsable,
         } => {
             assert_ne!(remote_host.is_some(), local);
+            assert_ne!(local, device);
 
             if let Some(host) = remote_host {
                 match list_exported_devices(&host) {
@@ -153,6 +168,8 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+            } else if device {
+                todo!("list vudc gadget devices")
             } else {
                 match list_local_devices() {
                     Ok(devices) => {
@@ -162,7 +179,10 @@ fn main() {
                             print_exportable_devices(&devices, parsable);
                         }
                     }
-                    Err(e) => todo!("{e} ({e:?})"),
+                    Err(e) => {
+                        eprintln!("{} {e}", "Error:".red());
+                        std::process::exit(1);
+                    }
                 }
             }
         }
