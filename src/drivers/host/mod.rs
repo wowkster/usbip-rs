@@ -8,7 +8,9 @@ use crate::drivers::{SysfsIoError, write_sysfs_attribute};
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
 pub struct UsbipHost {
-    // TODO
+    #[derivative(Debug = "ignore")]
+    context: udev::Udev,
+    device: udev::Device,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
