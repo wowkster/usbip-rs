@@ -14,11 +14,6 @@ pub enum Error {
     #[error(transparent)]
     VhciHcdDriver(#[from] VhciHcdError),
 
-    #[error("Failed to read file-system `vhci_hcd` state file for device on port {1}")]
-    FsIo(io::Error, u16),
-    #[error("Failed to parse file-system `vhci_hcd` state file for device on port {1}")]
-    FsStateParsing(sscanf::Error, u16),
-
     #[error(
         "An I/O error occurred while querying string descriptors from imported USB device with bus ID `{1}` ({0})"
     )]
