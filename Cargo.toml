@@ -7,8 +7,15 @@ members = [
 
 [package]
 name = "usbip-rs"
-version = "0.1.0"
+version = "0.1.0-rc1"
 edition = "2024"
+description = "An implementation of the entire Linux USB/IP userspace stack in Rust"
+authors = ["Adrian Wowk <dev@adrianwowk.com>"]
+license-file = "LICENSE"
+readme = "README.md"
+homepage = "https://github.com/wowkster/usbip-rs"
+repository = "https://github.com/wowkster/usbip-rs"
+keywords = ["linux", "usb", "usbip", "vhci_hcd", "usbip_host"]
 
 [lib]
 name = "usbip"
