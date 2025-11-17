@@ -41,6 +41,14 @@ pub fn extract_usb_info_from_udev_device(
         };
     }
 
+    // Some values need special handling since they might not be set in all
+    // cases and so parsing them may fail
+    macro_rules! try_parse_attr_hex {
+        ($ty:ty, $name:ident) => {
+            <$ty>::from_str_radix(extract_attr!($name), 16).unwrap_or_default()
+        };
+    }
+
     let sys_path = udev
         .syspath()
         .to_str()
@@ -62,8 +70,8 @@ pub fn extract_usb_info_from_udev_device(
         b_device_class: parse_attr_hex!(u8, bDeviceClass),
         b_device_sub_class: parse_attr_hex!(u8, bDeviceSubClass),
         b_device_protocol: parse_attr_hex!(u8, bDeviceProtocol),
-        b_configuration_value: parse_attr_hex!(u8, bConfigurationValue), // TODO: special handling (see original C impl in vhci_driver)
+        b_configuration_value: try_parse_attr_hex!(u8, bConfigurationValue),
         b_num_configurations: parse_attr_hex!(u8, bNumConfigurations),
-        b_num_interfaces: parse_attr_hex!(u8, bNumInterfaces), // TODO: special handling
+        b_num_interfaces: try_parse_attr_hex!(u8, bNumInterfaces),
     })
 }
