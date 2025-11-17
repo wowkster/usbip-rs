@@ -12,3 +12,10 @@ usbip-rs = {path = "../", default-features = false}
 
 clap = {version = "4.5.51", features = ["derive"]}
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+
+
+[features]
+default = ["baked-hwdb"]
+
+baked-hwdb = ["usbip-rs/baked-hwdb"]
+runtime-hwdb = ["usbip-rs/runtime-hwdb"]
