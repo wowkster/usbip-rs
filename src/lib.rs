@@ -14,6 +14,9 @@ pub mod proto;
 pub mod server;
 mod util;
 
+#[cfg(not(target_os = "linux"))]
+compile_error!("the usbip-rs crate only supports linux for the time being");
+
 #[derive(
     Debug,
     Clone,
