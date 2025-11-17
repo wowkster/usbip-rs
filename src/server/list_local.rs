@@ -25,7 +25,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ExportableDevice {
+pub struct LocalExportableDevice {
     pub device_info: UsbDeviceInfo,
 
     pub vendor: Option<String>,
@@ -38,7 +38,7 @@ pub struct ExportableDevice {
 
 /// Lists all local (exportable) devices. This includes all USB devices which
 /// are not hubs and are not virtual (attached by vhci_hcd) devices.
-pub fn list_local_devices() -> Result<Vec<ExportableDevice>, Error> {
+pub fn list_local_exportable_devices() -> Result<Vec<LocalExportableDevice>, Error> {
     #[cfg(feature = "runtime-hwdb")]
     let hwdb = udev::Hwdb::new()?;
 
@@ -90,7 +90,7 @@ pub fn list_local_devices() -> Result<Vec<ExportableDevice>, Error> {
             device_info.b_device_protocol,
         );
 
-        results.push(ExportableDevice {
+        results.push(LocalExportableDevice {
             device_info,
             vendor,
             product,

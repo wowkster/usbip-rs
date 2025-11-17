@@ -25,7 +25,7 @@ pub enum Error {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct ExportedDevice {
+pub struct RemoteExportedDevice {
     pub host: String,
     pub port: u16,
 
@@ -40,11 +40,11 @@ pub struct ExportedDevice {
     pub sub_class: Option<String>,
     pub protocol: Option<String>,
 
-    pub interfaces: Vec<ExportedDeviceInterface>,
+    pub interfaces: Vec<DeviceInterface>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct ExportedDeviceInterface {
+pub struct DeviceInterface {
     pub b_interface_class: u8,
     pub b_interface_sub_class: u8,
     pub b_interface_protocol: u8,
@@ -54,7 +54,9 @@ pub struct ExportedDeviceInterface {
     pub protocol: Option<String>,
 }
 
-pub fn list_exported_devices(host: &str) -> Result<Vec<ExportedDevice>, Error> {
+/// Connects to a remote host to request a list of all of its exported devices
+/// (those currently bound to the usbip-host driver)
+pub fn list_remote_exported_devices(host: &str) -> Result<Vec<RemoteExportedDevice>, Error> {
     #[cfg(feature = "runtime-hwdb")]
     let hwdb = udev::Hwdb::new().map_err(Error::UdevHwdb)?; // TODO: fallback to baked hwdb?
     let mut socket = UsbIpSocket::connect_host_and_port(host, UsbIpSocket::DEFAULT_PORT)
@@ -105,7 +107,7 @@ pub fn list_exported_devices(host: &str) -> Result<Vec<ExportedDevice>, Error> {
 
         let num_interfaces = remote_device.b_num_interfaces;
 
-        let mut exported = ExportedDevice {
+        let mut exported = RemoteExportedDevice {
             host: host.to_string(),
             port: UsbIpSocket::DEFAULT_PORT, // TODO: update when we add dynamic port support
             url: format!(
@@ -135,7 +137,7 @@ pub fn list_exported_devices(host: &str) -> Result<Vec<ExportedDevice>, Error> {
                 iface.b_interface_protocol,
             );
 
-            exported.interfaces.push(ExportedDeviceInterface {
+            exported.interfaces.push(DeviceInterface {
                 b_interface_class: iface.b_interface_class,
                 b_interface_sub_class: iface.b_interface_sub_class,
                 b_interface_protocol: iface.b_interface_protocol,

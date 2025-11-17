@@ -6,13 +6,13 @@ use usbip::{
     client::{
         attach::attach_device,
         detach::detach_device,
-        list::{ExportedDevice, list_exported_devices},
+        list::{RemoteExportedDevice, list_remote_exported_devices},
         port::{ImportedDevice, list_imported_devices},
     },
     drivers::vhci::VhciDeviceStatus,
     server::{
         bind::bind_device,
-        list_local::{ExportableDevice, list_local_devices},
+        list_local::{LocalExportableDevice, list_local_exportable_devices},
         unbind::unbind_device,
     },
 };
@@ -41,36 +41,41 @@ struct Args {
 enum Command {
     /// Attach a remote USB device
     Attach {
-        #[arg(short = 'r', long)]
-        remote_host: String,
         // TODO: TCP port
-        #[arg(short = 'b', long)]
-        bus_id: String,
+        /// The machine with exported USB devices
+        #[arg(short = 'r', long)]
+        remote: String,
+        /// Bus ID of the device on the remote host
+        #[arg(short = 'b', long, conflicts_with = "device")]
+        bus_id: Option<String>,
+        /// ID of the virtual UDC on the remote host
+        #[arg(short = 'd', long, conflicts_with = "bus_id")]
+        device: Option<String>,
     },
     /// Detach a remote USB device
     Detach {
+        // TODO: TCP port?
+        /// Local vhci_hcd port the device is bound to
         #[arg(short = 'p', long)]
         port: u16,
-        // TODO: TCP port?
     },
     /// List exportable or local USB devices
     List {
+        // TODO: TCP port?
+        /// List all exportable devices on a remote host
         #[arg(short = 'r', long, conflicts_with = "local", conflicts_with = "device")]
-        remote_host: Option<String>,
-        // TODO: TCP port? (use flatten for corrext grouping)
+        remote: Option<String>,
+        /// List the local USB devices which are eligible to be bound to usbip-host
         #[arg(
             short = 'l',
             long,
-            conflicts_with = "remote_host",
+            conflicts_with = "remote",
             conflicts_with = "device"
         )]
         local: bool,
-        #[arg(
-            short = 'd',
-            long,
-            conflicts_with = "local",
-            conflicts_with = "remote_host"
-        )]
+
+        /// List the local USB gadgets bound to usbip-vudc
+        #[arg(short = 'd', long, conflicts_with = "local", conflicts_with = "remote")]
         device: bool,
 
         /// Prints the output in a parsable format (use --json-output instead for better results)
@@ -79,15 +84,17 @@ enum Command {
     },
     /// Bind device to usbip_host.ko
     Bind {
+        /// Local bus ID of the USB device
         #[arg(short = 'b', long)]
         bus_id: String,
     },
     /// Unbind device from usbip_host.ko
     Unbind {
+        /// Local bus ID of the USB device (must already be bound to usbip-host)
         #[arg(short = 'b', long)]
         bus_id: String,
     },
-    /// Show imported USB devices
+    /// Show all imported USB devices
     Port,
 }
 
@@ -105,25 +112,33 @@ fn main() {
 
     match args.command {
         Command::Attach {
-            remote_host,
+            remote,
             bus_id,
-        } => match attach_device(&remote_host, &bus_id) {
-            Ok(port) => {
-                if args.json_output {
-                    let v = serde_json::json!({
-                        "port": port
-                    });
+            device,
+        } => {
+            // These are 2 different CLI arguments but the server actually
+            // treats them the same so we dont make any disctinction here
+            assert_ne!(bus_id.is_some(), device.is_some());
+            let bus_id = bus_id.or(device).unwrap();
 
-                    println!("{}", serde_json::to_string(&v).unwrap())
-                } else {
-                    println!("Device attached successfuly to port {port}")
+            match attach_device(&remote, &bus_id) {
+                Ok(port) => {
+                    if args.json_output {
+                        let v = serde_json::json!({
+                            "port": port
+                        });
+
+                        println!("{}", serde_json::to_string(&v).unwrap())
+                    } else {
+                        println!("Device attached successfuly to port {port}")
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{} {e}", "Error:".red());
+                    std::process::exit(1);
                 }
             }
-            Err(e) => {
-                eprintln!("{} {e}", "Error:".red());
-                std::process::exit(1);
-            }
-        },
+        }
         Command::Detach { port } => match detach_device(port, true) {
             Ok(_) => {
                 if args.json_output {
@@ -142,16 +157,16 @@ fn main() {
             }
         },
         Command::List {
-            remote_host,
+            remote,
             local,
             device,
             parsable,
         } => {
-            assert_ne!(remote_host.is_some(), local);
+            assert_ne!(remote.is_some(), local);
             assert_ne!(local, device);
 
-            if let Some(host) = remote_host {
-                match list_exported_devices(&host) {
+            if let Some(host) = remote {
+                match list_remote_exported_devices(&host) {
                     Ok(devices) => {
                         if args.json_output {
                             println!("{}", serde_json::to_string(&devices).unwrap())
@@ -160,7 +175,7 @@ fn main() {
                                 return;
                             }
 
-                            print_exported_devices(&host, &devices);
+                            print_remote_exported_devices(&host, &devices);
                         }
                     }
                     Err(e) => {
@@ -171,12 +186,12 @@ fn main() {
             } else if device {
                 todo!("list vudc gadget devices")
             } else {
-                match list_local_devices() {
+                match list_local_exportable_devices() {
                     Ok(devices) => {
                         if args.json_output {
                             println!("{}", serde_json::to_string(&devices).unwrap())
                         } else {
-                            print_exportable_devices(&devices, parsable);
+                            print_local_exportable_devices(&devices, parsable);
                         }
                     }
                     Err(e) => {
@@ -301,8 +316,7 @@ fn print_imported_devices(devices: &[ImportedDevice]) {
     }
 }
 
-fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
-    // surely this is wrong right? lol. its what the c impl does so we keep it.
+fn print_remote_exported_devices(host: &str, devices: &[RemoteExportedDevice]) {
     println!("Exportable USB devices");
     println!("======================");
 
@@ -399,7 +413,7 @@ fn print_exported_devices(host: &str, devices: &[ExportedDevice]) {
     }
 }
 
-fn print_exportable_devices(devices: &[ExportableDevice], parsable: bool) {
+fn print_local_exportable_devices(devices: &[LocalExportableDevice], parsable: bool) {
     for device in devices {
         if parsable {
             print!(
