@@ -22,8 +22,11 @@ use usbip::{
 struct Args {
     #[clap(subcommand)]
     command: Command,
+    /// Enables extra debug printing to STDERR
     #[arg(short = 'd', long)]
     debug: bool,
+    /// Outputs the result to STDOUT in JSON format with a `\n` terminator in
+    /// all success cases
     #[arg(short = 'j', long)]
     json_output: bool,
     // TODO: add a flag to switch between the old legacy interface (for existing
@@ -43,8 +46,8 @@ enum Command {
     Attach {
         // TODO: TCP port
         /// The machine with exported USB devices
-        #[arg(short = 'r', long)]
-        remote: String,
+        #[arg(short = 'r', long = "remote", name = "HOST")]
+        remote_host: String,
         /// Bus ID of the device on the remote host
         #[arg(short = 'b', long, conflicts_with = "device")]
         bus_id: Option<String>,
@@ -63,19 +66,20 @@ enum Command {
     List {
         // TODO: TCP port?
         /// List all exportable devices on a remote host
-        #[arg(short = 'r', long, conflicts_with = "local", conflicts_with = "device")]
-        remote: Option<String>,
-        /// List the local USB devices which are eligible to be bound to usbip-host
         #[arg(
-            short = 'l',
-            long,
-            conflicts_with = "remote",
+            short = 'r',
+            long = "remote",
+            name = "HOST",
+            conflicts_with = "local",
             conflicts_with = "device"
         )]
+        remote_host: Option<String>,
+        /// List the local USB devices which are eligible to be bound to usbip-host
+        #[arg(short = 'l', long, conflicts_with = "HOST", conflicts_with = "device")]
         local: bool,
 
         /// List the local USB gadgets bound to usbip-vudc
-        #[arg(short = 'd', long, conflicts_with = "local", conflicts_with = "remote")]
+        #[arg(short = 'd', long, conflicts_with = "local", conflicts_with = "HOST")]
         device: bool,
 
         /// Prints the output in a parsable format (use --json-output instead for better results)
@@ -112,7 +116,7 @@ fn main() {
 
     match args.command {
         Command::Attach {
-            remote,
+            remote_host,
             bus_id,
             device,
         } => {
@@ -121,7 +125,7 @@ fn main() {
             assert_ne!(bus_id.is_some(), device.is_some());
             let bus_id = bus_id.or(device).unwrap();
 
-            match attach_device(&remote, &bus_id) {
+            match attach_device(&remote_host, &bus_id) {
                 Ok(port) => {
                     if args.json_output {
                         let v = serde_json::json!({
@@ -157,15 +161,15 @@ fn main() {
             }
         },
         Command::List {
-            remote,
+            remote_host,
             local,
             device,
             parsable,
         } => {
-            assert_ne!(remote.is_some(), local);
+            assert_ne!(remote_host.is_some(), local);
             assert_ne!(local, device);
 
-            if let Some(host) = remote {
+            if let Some(host) = remote_host {
                 match list_remote_exported_devices(&host) {
                     Ok(devices) => {
                         if args.json_output {
