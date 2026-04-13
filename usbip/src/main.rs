@@ -1,4 +1,7 @@
-use clap::Parser;
+use clap::{
+    CommandFactory, Parser,
+    error::{ContextKind, ContextValue, ErrorKind},
+};
 use colored::Colorize;
 use tracing_subscriber::filter::LevelFilter;
 use usbip::{
@@ -166,8 +169,9 @@ fn main() {
             device,
             parsable,
         } => {
-            assert_ne!(remote_host.is_some(), local);
-            assert_ne!(local, device);
+            assert!(!(remote_host.is_some() && local));
+            assert!(!(remote_host.is_some() && device));
+            assert!(!(local && device));
 
             if let Some(host) = remote_host {
                 match list_remote_exported_devices(&host) {
@@ -189,7 +193,7 @@ fn main() {
                 }
             } else if device {
                 todo!("list vudc gadget devices")
-            } else {
+            } else if local {
                 match list_local_exportable_devices() {
                     Ok(devices) => {
                         if args.json_output {
@@ -203,6 +207,20 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+            } else {
+                let mut error =
+                    clap::Error::new(ErrorKind::MissingRequiredArgument).with_cmd(&Args::command());
+
+                error.insert(
+                    ContextKind::SuggestedArg,
+                    ContextValue::Strings(vec![
+                        "--local".into(),
+                        "--device".into(),
+                        "--remote-host".into(),
+                    ]),
+                );
+
+                error.exit();
             }
         }
         Command::Bind { bus_id } => match bind_device(&bus_id) {
