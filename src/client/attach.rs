@@ -26,6 +26,9 @@ pub enum Error {
     #[error("Bus ID returned by the server did not match the one that was sent")]
     BusIdMismatch,
 
+    #[error("Maximum number of attempts exceeded while waiting for a free port")]
+    MaxAttemptsExceeded,
+
     #[error("Failed to parse PDU: {0}")]
     Protocol(#[from] UsbDeviceInfoValidationError),
     #[error("usbip network operation failed ({0})")]
@@ -93,26 +96,43 @@ fn query_and_import(socket: &mut UsbIpSocket, bus_id: &str) -> Result<u32, Error
 }
 
 fn import_device(socket: &mut UsbIpSocket, remote_device: &UsbDeviceInfo) -> Result<u32, Error> {
-    let mut vhci_hdc = VhciHcd::open()?;
+    let mut vhci_hcd = VhciHcd::open()?;
 
-    tracing::debug!(?vhci_hdc);
+    tracing::debug!(?vhci_hcd);
     tracing::debug!(?remote_device);
 
-    loop {
-        let rh_port = vhci_hdc.get_free_port(remote_device.speed)?;
+    const MAX_ATTEMPTS: u32 = 8;
 
-        tracing::debug!("using free port: {rh_port}");
+    for _ in 0..MAX_ATTEMPTS {
+        let rh_port = vhci_hcd.get_free_port(remote_device.speed)?;
 
-        match vhci_hdc.attach_device(
+        tracing::debug!("attempting to use free port: {rh_port}");
+
+        match vhci_hcd.attach_device(
             rh_port,
             socket.as_raw_fd(),
             remote_device.bus_num,
             remote_device.dev_num,
             remote_device.speed as _,
         ) {
-            Ok(_) => return Ok(rh_port),
-            Err(VhciHcdError::SysfsIo(e)) if e.kind() == ErrorKind::ResourceBusy => continue,
+            Ok(_) => {
+                tracing::debug!("successfully attached device to port: {rh_port}");
+
+                return Ok(rh_port);
+            }
+            Err(VhciHcdError::SysfsIo(e)) if e.kind() == ErrorKind::ResourceBusy => {
+                tracing::debug!("port {rh_port} already in use, retrying...");
+
+                // if we throught a port was free but it wasnt, refresh the
+                // device list and try again
+                vhci_hcd.refresh_imported_device_list()?;
+                continue;
+            }
             Err(e) => return Err(e.into()),
         }
     }
+
+    tracing::warn!("max attempts exceeded");
+
+    Err(Error::MaxAttemptsExceeded)
 }
