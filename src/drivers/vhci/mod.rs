@@ -42,7 +42,7 @@ pub enum Error {
     )]
     SysfsPermissionDenied,
     #[error(
-        "No ports available on `vhci_hcd` root hub(s). How the did you even manage to screw this up?"
+        "No ports available on `vhci_hcd` root hub(s). How the hell did you even manage to screw this up?"
     )]
     VhciNoAvailablePorts,
     #[error(
@@ -257,7 +257,7 @@ impl VhciHcd {
             virtual_devices: vec![Default::default(); num_ports as usize],
         };
 
-        this.refresh_improted_device_list()?;
+        this.refresh_imported_device_list()?;
 
         Ok(this)
     }
@@ -266,7 +266,7 @@ impl VhciHcd {
     /// device to get a list of imported devices from each controller. After
     /// collecting the results, uses udev to query more information from the USB
     /// devices to update the internal cache.
-    pub fn refresh_improted_device_list(&mut self) -> Result<(), Error> {
+    pub fn refresh_imported_device_list(&mut self) -> Result<(), Error> {
         // we expect the total number of lines returned to match the `nports`
         // value we read during initialization. since the total number of
         // controllers and ports is baked into the kernel module at compile
