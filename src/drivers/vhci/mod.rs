@@ -337,7 +337,12 @@ impl VhciHcd {
                     }
                 };
 
-                self.virtual_devices[j as usize] = VhciDevice {
+                assert_eq!(
+                    status_line.port as usize,
+                    i as usize * self.ports_per_controller() as usize + j as usize,
+                );
+
+                self.virtual_devices[status_line.port as usize] = VhciDevice {
                     hub_speed: speed,
                     port: status_line.port,
                     state,
